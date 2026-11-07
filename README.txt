@@ -1,19 +1,14 @@
-loveeyuu — free installable PWA prototype
+loveeyuu v2 — Android deployment
 
-FILES
-index.html, app.js, sw.js, manifest.webmanifest, icon-192.png, icon-512.png
+1. Extract this ZIP using Android Files.
+2. Open your GitHub repository, on main branch.
+3. Upload the SEVEN files inside this ZIP to repository ROOT, replacing existing files of the same name. Do not upload the enclosing folder.
+4. Keep the old ZIP in the repository if you want, but it is not used by the website.
+5. Wait for GitHub Pages deployment, then reload the website. If you have installed the PWA, close and reopen it (or clear site cache if needed).
+6. Register with your email; confirm using the email link; log in and create your profile.
 
-ANDROID-ONLY DEPLOYMENT
-1. Download loveeyuu-pwa.zip and extract it using Android Files.
-2. Create a free GitHub account (if needed) and a public repository named loveeyuu.
-3. In the repository, choose Add file > Upload files (enable Desktop site in Chrome if necessary).
-4. Upload all SIX files from the extracted loveeyuu folder to the repository root, then commit.
-5. Go to Settings > Pages > Build and deployment > Deploy from a branch, choose main and /(root), then Save.
-6. Wait for GitHub Pages to publish the site; open the URL shown in Pages settings in Chrome.
-7. Chrome menu > Add to Home screen > Install app (or Add to Home screen).
-
-IMPORTANT
-The app must be served over HTTPS (GitHub Pages) for the PWA installation and service worker. Opening index.html directly from local storage will not install it as a PWA.
-All profiles are fictional. Matches, messages, Bluetooth, voice/video calls, and payments are demos. No real money or communication occurs.
-Demo data is stored in browser localStorage on this device; clearing browser site data will erase it.
-Do not enter real personal or financial information in this prototype.
+REAL: email signup/login/logout, profile saving to Supabase.
+DEMO ONLY: discovery, matches, chat, Bluetooth, voice/video calling, wallet and payments.
+All demo data is local on this device. Never enter real money or sensitive data into the demo.
+The 18+ check is self-declared and not identity verification. Add age verification, moderation, reporting and safety controls before public launch.
+Do not place Supabase secret/service-role keys in this app.

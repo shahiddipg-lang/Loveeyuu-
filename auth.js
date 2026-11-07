@@ -1,0 +1,23 @@
+(()=>{'use strict';
+const URL='https://ywrujueqerfuslnmuoqw.supabase.co';
+const KEY='sb_publishable_wJaJMh7ziijCy6oL-q_Zug_1fsGRVEA';
+const $=id=>document.getElementById(id),status=t=>{$('authStatus').textContent=t||''};
+let client,user=null,register=false,profileReady=false;
+const gate=$('authGate'),entry=$('authEntry'),profile=$('profileEntry');
+function showAuth(){gate.hidden=false;entry.hidden=false;profile.hidden=true;$('accountBar').hidden=true}
+function showProfile(){gate.hidden=false;entry.hidden=true;profile.hidden=false;$('accountBar').hidden=true;status('')}
+function showApp(){gate.hidden=true;$('accountBar').hidden=false;$('accountName').textContent='♡ '+(user?.email||'Account');status('')}
+function setRegister(on){register=on;$('authHeading').textContent=on?'Create account':'Log in';$('authSubmit').textContent=on?'Sign up':'Log in';$('authToggle').textContent=on?'Already have an account? Log in':'Create an account';$('forgotPassword').hidden=on;status('')}
+function validAge(d){const dt=new Date(d+'T12:00:00');if(!Number.isFinite(dt.getTime()))return false;const now=new Date();let age=now.getFullYear()-dt.getFullYear();if(now.getMonth()<dt.getMonth()||(now.getMonth()===dt.getMonth()&&now.getDate()<dt.getDate()))age--;return age>=18&&age<120}
+async function refresh(){const {data:{user:u},error}=await client.auth.getUser();if(error||!u){user=null;profileReady=false;showAuth();return}user=u;const {data,error:e}=await client.from('profiles').select('display_name,date_of_birth,city,bio,interests').eq('id',u.id).maybeSingle();if(e){showAuth();status('Profile database error: '+e.message);return}if(data){profileReady=true;$('myName').value=data.display_name||'';$('myDob').value=data.date_of_birth||'';$('myCity').value=data.city||'';$('myBio').value=data.bio||'';$('myInterests').value=(data.interests||[]).join(', ');showApp()}else{profileReady=false;showProfile()}}
+$('authToggle').onclick=()=>setRegister(!register);
+$('authForm').onsubmit=async e=>{e.preventDefault();if(!client)return;const email=$('authEmail').value.trim(),password=$('authPassword').value;$('authSubmit').disabled=true;status('Please wait…');try{if(register){const {data,error}=await client.auth.signUp({email,password,options:{emailRedirectTo:location.origin+location.pathname}});if(error)throw error;if(data.session){await refresh()}else status('Check your email for a verification link. After verifying, return here and log in.')}else{const {error}=await client.auth.signInWithPassword({email,password});if(error)throw error;await refresh()}}catch(err){status(err.message||String(err))}finally{$('authSubmit').disabled=false}};
+$('forgotPassword').onclick=async()=>{const email=$('authEmail').value.trim();if(!email){status('Enter your email above first.');return}const {error}=await client.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname});status(error?error.message:'Password recovery email requested. Check your inbox.')};
+$('profileForm').onsubmit=async e=>{e.preventDefault();if(!user)return;const dob=$('myDob').value;if(!validAge(dob)){status('You must be at least 18 years old.');return}const payload={id:user.id,display_name:$('myName').value.trim(),date_of_birth:dob,city:$('myCity').value.trim(),bio:$('myBio').value.trim(),interests:$('myInterests').value.split(',').map(x=>x.trim()).filter(Boolean).slice(0,15)};if(payload.display_name.length<2){status('Enter a display name of at least 2 characters.');return}status('Saving profile…');const {error}=await client.from('profiles').upsert(payload,{onConflict:'id'});if(error){status('Could not save: '+error.message);return}profileReady=true;showApp()};
+$('editProfile').onclick=()=>{if(user)showProfile()};$('cancelProfile').onclick=()=>{if(profileReady)showApp();else status('Please complete your profile to continue.')};
+$('logout').onclick=async()=>{await client.auth.signOut();user=null;profileReady=false;showAuth();setRegister(false)};
+if(!window.supabase?.createClient){showAuth();status('Could not load Supabase library. Connect to the internet and refresh this page.');return}
+client=window.supabase.createClient(URL,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+client.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'){user=null;profileReady=false;showAuth()}if(event==='PASSWORD_RECOVERY'){showAuth();status('Password recovery link opened. Use the recovery email flow to reset your password.')}});
+refresh().catch(err=>{showAuth();status('Connection error: '+err.message)});
+})();
