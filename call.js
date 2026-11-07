@@ -11,6 +11,8 @@
   let pollBusy = false;
   let timer = null;
   let startedAt = 0;
+  let accepting = false;
+  let starting = false;
 
   const rtcConfig = {
     iceServers: [
@@ -31,8 +33,11 @@
   }
 
   async function identity() {
-    const { data: { user }, error } = await db().auth.getUser();
+    const { data: { user }, error } =
+      await db().auth.getUser();
+
     if (error) throw error;
+
     uid = user?.id || null;
     return uid;
   }
@@ -40,8 +45,10 @@
   async function refreshMatches() {
     const rows = await request(db().rpc('my_matches'));
     const select = $('rtcMatch');
-    const previous = select.value;
 
+    if (!select) return [];
+
+    const previous = select.value;
     select.replaceChildren();
 
     for (const person of rows || []) {
@@ -66,7 +73,9 @@
 
   async function getMedia(kind) {
     if (!navigator.mediaDevices?.getUserMedia) {
-      throw new Error('Camera or microphone is unavailable in this browser.');
+      throw new Error(
+        'Camera or microphone unavailable in this browser.'
+      );
     }
 
     return navigator.mediaDevices.getUserMedia({
@@ -76,61 +85,103 @@
   }
 
   function createPeer() {
-    peer = new RTCPeerConnection(rtcConfig);
+    const connection = new RTCPeerConnection(rtcConfig);
+    peer = connection;
 
-    peer.ontrack = event => {
-      if (event.streams[0]) {
-        $('rtcRemote').srcObject = event.streams[0];
+    connection.ontrack = event => {
+      const remote = $('rtcRemote');
+
+      if (remote && event.streams[0]) {
+        remote.srcObject = event.streams[0];
+        remote.play().catch(() => {});
       }
     };
 
-    peer.onconnectionstatechange = () => {
-      if (!peer) return;
+    connection.onconnectionstatechange = () => {
+      if (peer !== connection) return;
 
-      if (peer.connectionState === 'connected') {
+      const state = connection.connectionState;
+
+      console.log('loveeyuu WebRTC state:', state);
+
+      if (state === 'connected') {
         status('Connected 💜');
-      } else if (peer.connectionState === 'failed') {
-        status('Connection failed. A TURN server may be required.');
-      } else if (peer.connectionState === 'disconnected') {
+        if (!timer) startTimer();
+      } else if (state === 'connecting') {
+        status('Connecting…');
+      } else if (state === 'failed') {
+        status(
+          'Connection failed. A TURN server may be required.'
+        );
+      } else if (state === 'disconnected') {
         status('Connection interrupted.');
       }
     };
 
+    connection.oniceconnectionstatechange = () => {
+      console.log(
+        'loveeyuu ICE state:',
+        connection.iceConnectionState
+      );
+    };
+
     for (const track of stream.getTracks()) {
-      peer.addTrack(track, stream);
+      connection.addTrack(track, stream);
     }
+
+    return connection;
   }
 
-  async function waitForICE() {
-    if (peer.iceGatheringState === 'complete') return;
+  async function waitForICE(connection) {
+    if (connection.iceGatheringState === 'complete') {
+      return;
+    }
 
     await new Promise(resolve => {
-      const connection = peer;
       const timeout = setTimeout(finish, 8000);
 
       function finish() {
         clearTimeout(timeout);
-        connection.removeEventListener('icegatheringstatechange', check);
+        connection.removeEventListener(
+          'icegatheringstatechange',
+          check
+        );
         resolve();
       }
 
       function check() {
-        if (connection.iceGatheringState === 'complete') finish();
+        if (connection.iceGatheringState === 'complete') {
+          finish();
+        }
       }
 
-      connection.addEventListener('icegatheringstatechange', check);
+      connection.addEventListener(
+        'icegatheringstatechange',
+        check
+      );
+
       check();
     });
   }
 
   function startTimer() {
-    clearInterval(timer);
+    if (timer) return;
+
     startedAt = Date.now();
 
     timer = setInterval(() => {
-      const seconds = Math.floor((Date.now() - startedAt) / 1000);
-      const mm = String(Math.floor(seconds / 60)).padStart(2, '0');
-      const ss = String(seconds % 60).padStart(2, '0');
+      const seconds = Math.floor(
+        (Date.now() - startedAt) / 1000
+      );
+
+      const mm = String(
+        Math.floor(seconds / 60)
+      ).padStart(2, '0');
+
+      const ss = String(
+        seconds % 60
+      ).padStart(2, '0');
+
       $('rtcTimer').textContent = `${mm}:${ss}`;
     }, 1000);
   }
@@ -138,11 +189,16 @@
   async function cleanup() {
     clearInterval(timer);
     timer = null;
+    startedAt = 0;
 
-    if (peer) {
-      peer.ontrack = null;
-      peer.close();
-      peer = null;
+    const oldPeer = peer;
+    peer = null;
+
+    if (oldPeer) {
+      oldPeer.ontrack = null;
+      oldPeer.onconnectionstatechange = null;
+      oldPeer.oniceconnectionstatechange = null;
+      oldPeer.close();
     }
 
     if (stream) {
@@ -155,7 +211,21 @@
     $('rtcTimer').textContent = '00:00';
 
     currentCall = null;
+    accepting = false;
     showCall(false);
+  }
+
+  async function markEnded(id, state = 'ended') {
+    if (!id) return;
+
+    await request(
+      db().from('calls')
+        .update({
+          state,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', id)
+    );
   }
 
   async function endCall() {
@@ -163,25 +233,25 @@
 
     await cleanup();
 
-    if (id) {
-      await request(
-        db().from('calls')
-          .update({
-            state: 'ended',
-            updated_at: new Date().toISOString()
-          })
-          .eq('id', id)
-      );
+    try {
+      await markEnded(id);
+      status('Call ended.');
+    } catch (error) {
+      status('End call error: ' + error.message);
     }
-
-    status('Call ended.');
   }
 
   async function startCall(kind) {
-    if (currentCall) return;
+    if (currentCall || starting) return;
+
+    starting = true;
 
     try {
       await identity();
+
+      if (!uid) {
+        throw new Error('Please log in first.');
+      }
 
       const people = await refreshMatches();
       const callee = $('rtcMatch').value;
@@ -196,13 +266,13 @@
       stream = await getMedia(kind);
       $('rtcLocal').srcObject = stream;
 
-      createPeer();
+      const connection = createPeer();
 
-      const offer = await peer.createOffer();
-      await peer.setLocalDescription(offer);
+      const offer = await connection.createOffer();
+      await connection.setLocalDescription(offer);
 
       status('Preparing connection…');
-      await waitForICE();
+      await waitForICE(connection);
 
       currentCall = await request(
         db().from('calls')
@@ -210,7 +280,7 @@
             caller: uid,
             callee,
             kind,
-            offer: peer.localDescription,
+            offer: connection.localDescription,
             state: 'ringing'
           })
           .select()
@@ -221,13 +291,28 @@
       status('Ringing…');
 
     } catch (error) {
+      console.error('loveeyuu startCall failed:', error);
+
+      const message = error?.message || String(error);
+
       await cleanup();
-      status('Call error: ' + error.message);
+      status('Call error: ' + message);
+
+    } finally {
+      starting = false;
     }
   }
 
   async function acceptCall() {
-    if (!currentCall || currentCall.state !== 'ringing') return;
+    if (
+      !currentCall ||
+      currentCall.state !== 'ringing' ||
+      accepting
+    ) {
+      return;
+    }
+
+    accepting = true;
 
     try {
       status('Requesting microphone permission…');
@@ -235,53 +320,95 @@
       stream = await getMedia(currentCall.kind);
       $('rtcLocal').srcObject = stream;
 
-      createPeer();
+      const connection = createPeer();
 
-      await peer.setRemoteDescription(currentCall.offer);
+      status('Reading incoming connection…');
 
-      const answer = await peer.createAnswer();
-      await peer.setLocalDescription(answer);
+      await connection.setRemoteDescription(
+        currentCall.offer
+      );
+
+      const answer = await connection.createAnswer();
+
+      await connection.setLocalDescription(answer);
 
       status('Preparing connection…');
-      await waitForICE();
 
-      await request(
+      await waitForICE(connection);
+
+      const updated = await request(
         db().from('calls')
           .update({
-            answer: peer.localDescription,
+            answer: connection.localDescription,
             state: 'accepted',
             updated_at: new Date().toISOString()
           })
           .eq('id', currentCall.id)
           .eq('state', 'ringing')
+          .select()
+          .maybeSingle()
       );
+
+      if (!updated) {
+        throw new Error(
+          'Call could not be accepted. It may have ended.'
+        );
+      }
 
       currentCall.state = 'accepted';
 
       showCall(true);
-      startTimer();
       status('Connecting…');
 
     } catch (error) {
-      status('Call error: ' + error.message);
-      await endCall();
+      console.error('loveeyuu acceptCall failed:', error);
+
+      const message = error?.message || String(error);
+
+      // Preserve the real error instead of hiding it
+      // behind "Call ended".
+      await cleanup();
+
+      status('Accept failed: ' + message);
+
+    } finally {
+      accepting = false;
     }
   }
 
   async function poll() {
-    if (pollBusy || !uid || document.hidden) return;
+    if (
+      pollBusy ||
+      !uid ||
+      document.hidden ||
+      accepting ||
+      starting
+    ) {
+      return;
+    }
+
     pollBusy = true;
 
     try {
       if (currentCall) {
+        const callId = currentCall.id;
+
         const row = await request(
           db().from('calls')
             .select('*')
-            .eq('id', currentCall.id)
+            .eq('id', callId)
             .maybeSingle()
         );
 
-        if (!row || ['ended', 'declined'].includes(row.state)) {
+        // Ignore a stale poll result after cleanup.
+        if (!currentCall || currentCall.id !== callId) {
+          return;
+        }
+
+        if (
+          !row ||
+          ['ended', 'declined'].includes(row.state)
+        ) {
           await cleanup();
           status('Call ended.');
           return;
@@ -295,7 +422,6 @@
           !peer.currentRemoteDescription
         ) {
           await peer.setRemoteDescription(row.answer);
-          startTimer();
           status('Connecting…');
         }
 
@@ -307,23 +433,37 @@
             .select('*')
             .eq('callee', uid)
             .eq('state', 'ringing')
-            .order('created_at', { ascending: false })
+            .order('created_at', {
+              ascending: false
+            })
             .limit(5)
         );
 
         const incoming = (rows || []).find(
-          row => Date.now() - Date.parse(row.created_at) < 60000
+          row =>
+            Date.now() - Date.parse(row.created_at) < 60000
         );
 
-        if (incoming) {
+        if (incoming && !currentCall) {
           currentCall = incoming;
+
           $('rtcIncoming').hidden = false;
           $('rtcStart').hidden = true;
-          status('Incoming ' + incoming.kind + ' call!');
+
+          status(
+            'Incoming ' + incoming.kind + ' call!'
+          );
         }
       }
+
     } catch (error) {
-      status('Call error: ' + error.message);
+      console.error('loveeyuu poll failed:', error);
+
+      status(
+        'Call error: ' +
+        (error?.message || String(error))
+      );
+
     } finally {
       pollBusy = false;
     }
@@ -333,12 +473,16 @@
     if (!db()) return;
 
     await identity();
+
     if (!uid) return;
 
     await refreshMatches();
 
     if (!window.loveeyuuCallTimer) {
-      window.loveeyuuCallTimer = setInterval(poll, 1800);
+      window.loveeyuuCallTimer = setInterval(
+        poll,
+        1800
+      );
     }
 
     status('Ready for test calls.');
@@ -347,7 +491,14 @@
   function run(fn) {
     Promise.resolve()
       .then(fn)
-      .catch(error => status('Call error: ' + error.message));
+      .catch(error => {
+        console.error('loveeyuu call error:', error);
+
+        status(
+          'Call error: ' +
+          (error?.message || String(error))
+        );
+      });
   }
 
   $('rtcRefresh').onclick = () => run(async () => {
@@ -356,22 +507,39 @@
     status('Matches refreshed.');
   });
 
-  $('rtcVoice').onclick = () => run(() => startCall('voice'));
-  $('rtcVideo').onclick = () => run(() => startCall('video'));
-  $('rtcAccept').onclick = () => run(acceptCall);
-  $('rtcDecline').onclick = () => run(endCall);
-  $('rtcHangup').onclick = () => run(endCall);
+  $('rtcVoice').onclick = () =>
+    run(() => startCall('voice'));
 
-  window.addEventListener('loveeyuu:ready', () => run(init));
+  $('rtcVideo').onclick = () =>
+    run(() => startCall('video'));
+
+  $('rtcAccept').onclick = () =>
+    run(acceptCall);
+
+  $('rtcDecline').onclick = () =>
+    run(endCall);
+
+  $('rtcHangup').onclick = () =>
+    run(endCall);
+
+  window.addEventListener(
+    'loveeyuu:ready',
+    () => run(init)
+  );
 
   setTimeout(() => {
     if (db()) run(init);
   }, 800);
 
-  window.addEventListener('loveeyuu:signedout', () => {
-    uid = null;
-    clearInterval(window.loveeyuuCallTimer);
-    window.loveeyuuCallTimer = null;
-    run(cleanup);
-  });
+  window.addEventListener(
+    'loveeyuu:signedout',
+    () => {
+      uid = null;
+
+      clearInterval(window.loveeyuuCallTimer);
+      window.loveeyuuCallTimer = null;
+
+      run(cleanup);
+    }
+  );
 })();
