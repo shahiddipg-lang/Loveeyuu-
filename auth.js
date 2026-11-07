@@ -6,7 +6,7 @@ let client,user=null,register=false,profileReady=false;
 const gate=$('authGate'),entry=$('authEntry'),profile=$('profileEntry');
 function showAuth(){gate.hidden=false;entry.hidden=false;profile.hidden=true;$('accountBar').hidden=true}
 function showProfile(){gate.hidden=false;entry.hidden=true;profile.hidden=false;$('accountBar').hidden=true;status('')}
-function showApp(){gate.hidden=true;$('accountBar').hidden=false;$('accountName').textContent='♡ '+(user?.email||'Account');status('')}
+function showApp(){window.dispatchEvent(new Event('loveeyuu:ready'));gate.hidden=true;$('accountBar').hidden=false;$('accountName').textContent='♡ '+(user?.email||'Account');status('')}
 function setRegister(on){register=on;$('authHeading').textContent=on?'Create account':'Log in';$('authSubmit').textContent=on?'Sign up':'Log in';$('authToggle').textContent=on?'Already have an account? Log in':'Create an account';$('forgotPassword').hidden=on;status('')}
 function validAge(d){const dt=new Date(d+'T12:00:00');if(!Number.isFinite(dt.getTime()))return false;const now=new Date();let age=now.getFullYear()-dt.getFullYear();if(now.getMonth()<dt.getMonth()||(now.getMonth()===dt.getMonth()&&now.getDate()<dt.getDate()))age--;return age>=18&&age<120}
 async function refresh(){const {data:{user:u},error}=await client.auth.getUser();if(error||!u){user=null;profileReady=false;showAuth();return}user=u;const {data,error:e}=await client.from('profiles').select('display_name,date_of_birth,city,bio,interests').eq('id',u.id).maybeSingle();if(e){showAuth();status('Profile database error: '+e.message);return}if(data){profileReady=true;$('myName').value=data.display_name||'';$('myDob').value=data.date_of_birth||'';$('myCity').value=data.city||'';$('myBio').value=data.bio||'';$('myInterests').value=(data.interests||[]).join(', ');showApp()}else{profileReady=false;showProfile()}}
@@ -18,6 +18,6 @@ $('editProfile').onclick=()=>{if(user)showProfile()};$('cancelProfile').onclick=
 $('logout').onclick=async()=>{await client.auth.signOut();user=null;profileReady=false;showAuth();setRegister(false)};
 if(!window.supabase?.createClient){showAuth();status('Could not load Supabase library. Connect to the internet and refresh this page.');return}
 client=window.supabase.createClient(URL,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
-client.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'){user=null;profileReady=false;showAuth()}if(event==='PASSWORD_RECOVERY'){showAuth();status('Password recovery link opened. Use the recovery email flow to reset your password.')}});
+window.loveeyuuClient=client;client.auth.onAuthStateChange((event)=>{if(event==='SIGNED_OUT'){window.dispatchEvent(new Event('loveeyuu:signedout'));user=null;profileReady=false;showAuth()}if(event==='PASSWORD_RECOVERY'){showAuth();status('Password recovery link opened. Use the recovery email flow to reset your password.')}});
 refresh().catch(err=>{showAuth();status('Connection error: '+err.message)});
 })();

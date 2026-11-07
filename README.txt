@@ -1,14 +1,22 @@
-loveeyuu v2 — Android deployment
+loveeyuu v3 — Android-only GitHub Pages deployment
 
-1. Extract this ZIP using Android Files.
-2. Open your GitHub repository, on main branch.
-3. Upload the SEVEN files inside this ZIP to repository ROOT, replacing existing files of the same name. Do not upload the enclosing folder.
-4. Keep the old ZIP in the repository if you want, but it is not used by the website.
-5. Wait for GitHub Pages deployment, then reload the website. If you have installed the PWA, close and reopen it (or clear site cache if needed).
-6. Register with your email; confirm using the email link; log in and create your profile.
+IMPORTANT: This is a PRIVATE BETA prototype. Real account login, opted-in discovery, mutual likes, chat and block/report storage are implemented. Reports are NOT actively moderated. Do NOT invite the public or enter real personal information until verification, moderation, and privacy reviews are complete. Bluetooth, calling, payments and original demo profiles remain simulations.
 
-REAL: email signup/login/logout, profile saving to Supabase.
-DEMO ONLY: discovery, matches, chat, Bluetooth, voice/video calling, wallet and payments.
-All demo data is local on this device. Never enter real money or sensitive data into the demo.
-The 18+ check is self-declared and not identity verification. Add age verification, moderation, reporting and safety controls before public launch.
-Do not place Supabase secret/service-role keys in this app.
+STEP 1 — SUPABASE (MUST RUN FIRST)
+In your existing Supabase project open SQL Editor > New query.
+Copy ALL contents of SETUP_V3.sql, paste, Run and enable RLS if prompted.
+If you see an error, stop and share the error before proceeding.
+
+STEP 2 — GITHUB
+Unzip this archive. Upload the eight web files to the ROOT of your existing GitHub repository (main branch):
+index.html, app.js, auth.js, live.js, sw.js, manifest.webmanifest, icon-192.png, icon-512.png.
+Replace matching existing files; don't upload a nested folder. README.txt is optional. SETUP_V3.sql is for Supabase only, not for GitHub Pages.
+Wait for Pages deployment and reopen the PWA. The bottom navigation now has a "Real" tab.
+
+STEP 3 — TEST
+1. Log in with your existing test account; save visibility checkbox in Real tab.
+2. Create a second test account using a separate email and browser session/device, complete 18+ test profile, and opt in.
+3. Discover and like each other. Refresh matches. Select Chat and exchange test messages.
+4. Test block and report. Do not use real personal details.
+
+NOTE: Existing private profiles RLS policies remain in place. discover_people() returns only opted-in fields, never birth dates. This is a functional prototype, NOT production-ready age verification or abuse prevention.

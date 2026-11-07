@@ -1,0 +1,24 @@
+(()=>{'use strict';
+const $=id=>document.getElementById(id), client=()=>window.loveeyuuClient;
+let me=null,partner=null,partners=[];
+const status=t=>{$('liveStatus').textContent=t||''};
+const node=(tag,txt,cls)=>{const e=document.createElement(tag);e.textContent=txt;if(cls)e.className=cls;return e};
+const button=(label,cb,cls='light')=>{const b=node('button',label,cls);b.type='button';b.onclick=cb;return b};
+async function request(q){const {data,error}=await q;if(error)throw error;return data}
+async function loadUser(){const {data:{user}}=await client().auth.getUser();me=user?.id||null;return !!me}
+async function visibility(){const p=await request(client().from('profiles').select('discoverable').eq('id',me).single());$('discoverable').checked=!!p.discoverable}
+async function people(){const list=$('realPeople');list.replaceChildren();const rows=await request(client().rpc('discover_people'));if(!rows.length)list.textContent='No opted-in profiles yet. Invite another adult test user to sign up.';
+ for(const p of rows){const card=node('div','', 'person');card.append(node('h3',`${p.display_name}, ${p.age}`),node('p',`📍 ${p.city||'City not shared'}`),node('p',p.bio||''),node('small',(p.interests||[]).join(' · ')));const actions=node('div','','actions');actions.append(button('❤️ Like',()=>act(async()=>{await request(client().from('likes').insert({liker:me,liked:p.id}));status('Like sent. You can chat if they like you back.');await matches()})),button('🚫 Block',()=>block(p.id)),button('⚑ Report',()=>report(p.id)));card.append(actions);list.append(card)} }
+async function matches(){const list=$('realMatches');list.replaceChildren();partners=await request(client().rpc('my_matches'));if(!partners.length)list.textContent='No mutual matches yet.';if(partner&&!partners.some(p=>p.id===partner.id)){partner=null;$('liveChatWith').textContent='Select a mutual match above.';$('liveMessages').replaceChildren()}
+ for(const p of partners){const row=node('div','', 'person');row.append(node('strong',`${p.display_name}, ${p.age} · ${p.city||''}`));const a=node('div','','actions');a.append(button('💬 Chat',()=>{partner=p;$('liveChatWith').textContent='Chat with '+p.display_name;act(messages)}),button('💔 Unlike',()=>act(async()=>{await request(client().from('likes').delete().eq('liker',me).eq('liked',p.id));await matches()})),button('🚫 Block',()=>block(p.id)),button('⚑ Report',()=>report(p.id)));row.append(a);list.append(row)} }
+async function messages(){if(!partner)return;const rows=await request(client().from('messages').select('sender,body,created_at').or(`and(sender.eq.${me},recipient.eq.${partner.id}),and(sender.eq.${partner.id},recipient.eq.${me})`).order('created_at',{ascending:true}).limit(100));const list=$('liveMessages');list.replaceChildren();for(const m of rows)list.append(node('div',m.body,'bubble'+(m.sender===me?' mine':'')));list.scrollTop=list.scrollHeight}
+async function block(id){if(!confirm('Block this user? You will no longer see or chat with each other.'))return;act(async()=>{await request(client().from('blocks').insert({blocker:me,blocked:id}));await people();await matches();status('User blocked.')})}
+async function report(id){const reason=prompt('Describe the problem (at least 5 characters). Reports are stored for review; moderation is not yet staffed.');if(reason===null)return;if(reason.trim().length<5){status('Please enter at least 5 characters.');return}act(async()=>{await request(client().from('reports').insert({reporter:me,reported:id,reason:reason.trim().slice(0,500)}));status('Report submitted. This beta has no active moderation team yet.')})}
+async function act(fn){try{status('Working…');await fn();if($('liveStatus').textContent==='Working…')status('Done.')}catch(e){status('Error: '+e.message)}}
+$('saveVisibility').onclick=()=>act(async()=>{await request(client().from('profiles').update({discoverable:$('discoverable').checked}).eq('id',me));status('Visibility saved.');await people()});
+$('refreshPeople').onclick=()=>act(people);$('refreshMatches').onclick=()=>act(matches);$('refreshMessages').onclick=()=>act(messages);
+$('liveChatForm').onsubmit=e=>{e.preventDefault();if(!partner){status('Choose a match first.');return}const body=$('liveMessage').value.trim();if(!body)return;act(async()=>{await request(client().from('messages').insert({sender:me,recipient:partner.id,body}));$('liveMessage').value='';await messages()})};
+window.addEventListener('loveeyuu:ready',()=>act(async()=>{if(!await loadUser())return;await visibility();await people();await matches()}));
+setTimeout(()=>{if(client())act(async()=>{if(await loadUser()){await visibility();await people();await matches()}})},400);
+window.addEventListener('loveeyuu:signedout',()=>{me=null;partner=null;partners=[];$('realPeople').replaceChildren();$('realMatches').replaceChildren();$('liveMessages').replaceChildren();status('')});
+})();
